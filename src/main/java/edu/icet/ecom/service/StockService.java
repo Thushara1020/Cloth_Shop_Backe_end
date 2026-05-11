@@ -92,8 +92,8 @@ public class StockService {
                 totalOut += Math.abs(qty);
                 ProductVariantEntity v = log.getVariant();
                 if (v != null) {
-                    double p = (v.getPriceOverride() != null) ? v.getPriceOverride() : v.getProduct().getBasePrice();
-                    soldValue += (Math.abs(qty) * p);
+                    double p = (v.getPriceOverride() != null) ? v.getPriceOverride() :
+                            (v.getProduct().getRetailPrice() != null ? v.getProduct().getRetailPrice() : v.getProduct().getWholesalePrice());                    soldValue += (Math.abs(qty) * p);
                 }
             }
         }
@@ -131,7 +131,13 @@ public class StockService {
     private double calculateStockValue() {
         return productRepository.findAll().stream()
                 .flatMap(p -> p.getVariants().stream())
-                .mapToDouble(v -> (v.getStockQuantity() != null ? v.getStockQuantity() : 0) * (v.getPriceOverride() != null ? v.getPriceOverride() : v.getProduct().getBasePrice()))
+                .mapToDouble(v -> {
+                    int qty = (v.getStockQuantity() != null ? v.getStockQuantity() : 0);
+                    // Use Price Override if exists, otherwise use Wholesale Price for inventory value
+                    double unitPrice = (v.getPriceOverride() != null) ? v.getPriceOverride() :
+                            (v.getProduct().getWholesalePrice() != null ? v.getProduct().getWholesalePrice() : 0.0);
+                    return qty * unitPrice;
+                })
                 .sum();
     }
 

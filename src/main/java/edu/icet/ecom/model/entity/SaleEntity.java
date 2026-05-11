@@ -1,5 +1,6 @@
 package edu.icet.ecom.model.entity;
 
+import edu.icet.ecom.enums.SaleType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -12,6 +13,9 @@ import java.util.List;
 public class SaleEntity {
     @Id
     private String saleId;
+
+    @Enumerated(EnumType.STRING)
+    private SaleType saleType;
 
     private Double totalAmount;        // Gross total (sum of unit price * qty)
     private Double discountPercentage;  // The % you input manually (e.g., 5.0)
