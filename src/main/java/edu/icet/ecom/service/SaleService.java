@@ -5,6 +5,7 @@ import edu.icet.ecom.model.dto.SalesItemDto;
 import edu.icet.ecom.model.dto.StockReportDto;
 import edu.icet.ecom.model.entity.*;
 import edu.icet.ecom.repository.*;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
@@ -29,24 +30,33 @@ public class SaleService {
 
     @Transactional
     public void placeOrder(SalesDto salesDto) {
+        // 1. Validation: Prevent NullPointerException on getItems()
+        if (salesDto.getItems() == null || salesDto.getItems().isEmpty()) {
+            throw new IllegalArgumentException("Cannot place an order with no items.");
+        }
+
         SaleEntity saleEntity = new SaleEntity();
         saleEntity.setSaleId("SALE-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        saleEntity.setSaleType(salesDto.getSaleType());
 
         LocalDateTime now = LocalDateTime.now();
         String formattedTimestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        String dateOnly = now.toLocalDate().toString(); // e.g., 2026-04-29
+        String dateOnly = now.toLocalDate().toString();
 
         saleEntity.setTimestamp(formattedTimestamp);
         saleEntity.setPaymentMethod(salesDto.getPaymentMethod());
 
+        // 2. Admin Lookup (Crucial for Amashi's name to appear)
         AdminEntity admin = adminRepository.findById(salesDto.getAdminId())
-                .orElseThrow(() -> new RuntimeException("Admin not found"));
+                .orElseThrow(() -> new EntityNotFoundException("Admin ID " + salesDto.getAdminId() + " not found."));
+
         saleEntity.setAdmin(admin);
 
         double totalAmount = 0.0;
         double totalDiscountAmount = 0.0;
         List<SalesItemEntity> itemEntities = new ArrayList<>();
 
+        // 3. Process Items
         for (SalesItemDto itemDto : salesDto.getItems()) {
             ProductVariantEntity variant = variantRepository
                     .findByBarcodeId(itemDto.getBarcodeId())
@@ -56,11 +66,11 @@ public class SaleService {
                 throw new RuntimeException("Insufficient stock for: " + variant.getSku());
             }
 
-            // 1. Update Variant Quantity in Database
+            // Update Stock
             variant.setStockQuantity(variant.getStockQuantity() - itemDto.getQuantity());
-            variantRepository.save(variant);
+            variantRepository.saveAndFlush(variant);
 
-            // 2. Pricing Calculations
+            // Calculate Pricing
             double unitPrice = itemDto.getUnitPrice();
             int qty = itemDto.getQuantity();
             double itemTotal = unitPrice * qty;
@@ -81,17 +91,19 @@ public class SaleService {
             totalAmount += itemTotal;
             totalDiscountAmount += itemDiscount;
 
-            // 3. CREATE STOCK LOG (CRITICAL: Quantity must be NEGATIVE for sales)
+            // 4. Log Stock Change with Admin Name (Amashi Pathiraja)
+            // 4. Log Stock Change with Admin Name
             StockLogEntity log = new StockLogEntity();
             log.setVariant(variant);
             log.setBarcodeId(variant.getBarcodeId());
-            log.setQuantityChange(-qty); // Important: -qty so StockService sees it as "Out"
-            log.setUpdateReason("SALE: " + saleEntity.getSaleId());
+            log.setQuantityChange(-qty);
+            log.setSaleType(salesDto.getSaleType()); // ← ADD THIS LINE
+            String adminName = (admin.getFullName() != null) ? admin.getFullName() : admin.getUsername();
+            log.setUpdateReason("SALE BY: " + adminName);
             log.setTimestamp(formattedTimestamp);
             log.setAdmin(admin);
-            logRepository.save(log);
+            logRepository.saveAndFlush(log);
 
-            // 4. Update Product Stock Status (AVAILABLE/LOW/OUT)
             stockService.refreshStatus(variant.getProduct().getProductId());
         }
 
@@ -101,10 +113,7 @@ public class SaleService {
         saleEntity.setNetAmount(totalAmount - totalDiscountAmount);
         saleEntity.setItems(itemEntities);
 
-        // 5. Save the Sale
-        saleRepository.save(saleEntity);
-
-        // 6. TRIGGER REPORT UPDATE (This ensures stock_report updates immediately)
+        saleRepository.saveAndFlush(saleEntity);
         stockService.generateReport("DAILY", dateOnly);
     }
 
@@ -126,7 +135,6 @@ public class SaleService {
         double revenue = 0.0;
         double totalDiscount = 0.0;
 
-        // 2. Calculate Sales Totals (Items Out, Revenue, Discounts)
         for (SaleEntity sale : sales) {
             revenue += (sale.getNetAmount() != null) ? sale.getNetAmount() : 0.0;
             totalDiscount += (sale.getDiscountAmount() != null) ? sale.getDiscountAmount() : 0.0;
@@ -138,41 +146,46 @@ public class SaleService {
             }
         }
 
-        // 3. Calculate Stock Log Totals (Items In - Restocks)
         for (StockLogEntity log : logs) {
             if (log.getQuantityChange() > 0) {
                 itemsIn += log.getQuantityChange();
             }
         }
 
-        // 4. Calculate Current Total Warehouse Value
         double currentStockValue = variantRepository.findAll().stream()
-                .mapToDouble(v -> (v.getStockQuantity() != null ? v.getStockQuantity() : 0) * (v.getPriceOverride() != null ? v.getPriceOverride() : 0.0))
+                .mapToDouble(v -> {
+                    int qty = (v.getStockQuantity() != null ? v.getStockQuantity() : 0);
+                    // Fallback: If priceOverride exists, use it, else use wholesalePrice
+                    double price = (v.getPriceOverride() != null && v.getPriceOverride() > 0)
+                            ? v.getPriceOverride()
+                            : (v.getProduct().getWholesalePrice() != null ? v.getProduct().getWholesalePrice() : 0.0);
+                    return qty * price;
+                })
                 .sum();
+        return createAndSaveReport(type, date, itemsIn, itemsOut, revenue, totalDiscount, currentStockValue);
+    }
 
-        // 5. Create and Save the Entity (For SQL Persistence)
+    private StockReportDto createAndSaveReport(String type, String date, int in, int out, double rev, double disc, double val) {
         StockReportEntity reportEntity = new StockReportEntity();
         reportEntity.setReportType(type.toUpperCase());
         reportEntity.setReportDate(date);
-        reportEntity.setTotalItemsIn(itemsIn);
-        reportEntity.setTotalItemsOut(itemsOut);
-        reportEntity.setTotalRevenue(revenue);
-        reportEntity.setTotalDiscountGiven(totalDiscount);
-        reportEntity.setStockValue(currentStockValue);
+        reportEntity.setTotalItemsIn(in);
+        reportEntity.setTotalItemsOut(out);
+        reportEntity.setTotalRevenue(rev);
+        reportEntity.setTotalDiscountGiven(disc);
+        reportEntity.setStockValue(val);
         reportEntity.setGeneratedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-
         stockReportRepository.save(reportEntity);
 
-        // 6. Map and Return the DTO
         StockReportDto dto = new StockReportDto();
         dto.setReportType(reportEntity.getReportType());
         dto.setDate(reportEntity.getReportDate());
-        dto.setTotalItemsIn(itemsIn);
-        dto.setTotalItemsOut(itemsOut);
-        dto.setTotalRevenue(revenue);
-        dto.setTotalDiscountGiven(totalDiscount);
-        dto.setStockValue(currentStockValue);
-
+        dto.setTotalItemsIn(in);
+        dto.setTotalItemsOut(out);
+        dto.setTotalRevenue(rev);
+        dto.setTotalDiscountGiven(disc);
+        dto.setStockValue(val);
         return dto;
     }
 }
+

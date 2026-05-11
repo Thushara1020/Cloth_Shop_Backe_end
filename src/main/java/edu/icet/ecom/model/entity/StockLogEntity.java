@@ -2,6 +2,7 @@ package edu.icet.ecom.model.entity;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import edu.icet.ecom.enums.SaleType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -28,6 +29,9 @@ public class StockLogEntity {
 
     @JsonProperty("UPDATE_REASON")
     private String updateReason;
+    @Enumerated(EnumType.STRING)   // ← stores "RETAIL" / "WHOLESALE" as text
+    @Column(name = "SALE_TYPE")    // ← must match your DB column name
+    private SaleType saleType;
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "admin_id")

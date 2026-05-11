@@ -20,7 +20,8 @@ public class AdminEntity  {
     private String username;
 
     private String password;
-    private String role; // e.g. "ROLE_ADMIN"
+    private String role;
+    @Column(name = "full_name")
     private String fullName;
     private Boolean isActive;
     private String NIC;
