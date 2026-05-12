@@ -16,17 +16,74 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
 public class SaleService {
 
+    private final SalesItemRepository salesItemRepository;
     private final SaleRepository saleRepository;
     private final ProductVariantRepository variantRepository;
     private final StockLogRepository logRepository;
     private final AdminRepository adminRepository;
     private final StockService stockService;
     private final StockReportRepository stockReportRepository;
+
+    public List<SalesDto> getAllSales() {
+        return saleRepository.findAll().stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
+    }
+    public List<SalesDto> findSalesByBarcode(String barcodeId) {
+        List<SalesItemEntity> items = salesItemRepository.findByBarcodeId(barcodeId);
+
+        return items.stream()
+                .map(item -> item.getSale()) // Get the parent SaleEntity
+                .distinct()                  // Remove duplicates if same item added twice in one sale
+                .map(this::convertToDto)     // Convert to the DTO you already have
+                .collect(Collectors.toList());
+    }
+
+    private SalesDto convertToDto(SaleEntity entity) {
+        SalesDto dto = new SalesDto();
+        dto.setSaleId(entity.getSaleId());
+        dto.setSaleType(entity.getSaleType());
+        dto.setTotalAmount(entity.getTotalAmount());
+        dto.setDiscountPercentage(entity.getDiscountPercentage());
+        dto.setDiscountedApplied(entity.getDiscountAmount());
+        dto.setNetAmount(entity.getNetAmount());
+        dto.setPaymentMethod(entity.getPaymentMethod());
+        dto.setTimestamp(entity.getTimestamp());
+
+        // 1. Map Admin ID
+        if (entity.getAdmin() != null) {
+            dto.setAdminId(entity.getAdmin().getAdminId());
+        }
+
+        // 2. Map Items List (Fixes the null items issue)
+        if (entity.getItems() != null) {
+            List<SalesItemDto> itemDtos = entity.getItems().stream().map(itemEntity -> {
+                SalesItemDto itemDto = new SalesItemDto();
+                itemDto.setBarcodeId(itemEntity.getBarcodeId()); // Important for return logic
+                itemDto.setQuantity(itemEntity.getQuantity());
+                itemDto.setUnitPrice(itemEntity.getUnitPrice());
+                itemDto.setTotalPrice(itemEntity.getTotalPrice());
+
+                // If you need the name from the variant/product
+                if (itemEntity.getVariant() != null && itemEntity.getVariant().getProduct() != null) {
+                    itemDto.setItemName(itemEntity.getVariant().getProduct().getProductName());
+                    itemDto.setVarientId(itemEntity.getVariant().getVariantId());
+                }
+
+                return itemDto;
+            }).collect(Collectors.toList());
+
+            dto.setItems(itemDtos);
+        }
+
+        return dto;
+    }
 
     @Transactional
     public void placeOrder(SalesDto salesDto) {
@@ -100,6 +157,7 @@ public class SaleService {
             SalesItemEntity itemEntity = new SalesItemEntity();
             itemEntity.setSale(saleEntity);
             itemEntity.setVariant(variant);
+            itemEntity.setBarcodeId(variant.getBarcodeId());
             itemEntity.setQuantity(qty);
             itemEntity.setUnitPrice(unitPrice);
             itemEntity.setTotalPrice(itemTotal);
@@ -205,5 +263,6 @@ public class SaleService {
         dto.setStockValue(val);
         return dto;
     }
+
 }
 

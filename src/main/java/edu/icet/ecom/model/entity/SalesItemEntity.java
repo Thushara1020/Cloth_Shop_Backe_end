@@ -24,9 +24,12 @@ public class SalesItemEntity {
     private Double discountAmount;
     @Column(name = "net_price")
     private Double netPrice;
+    @Column(name = "barcode_id")
+    private String barcodeId;
     private Integer quantity;
     private Double unitPrice;
     private Double totalPrice;
+
 
 
 
