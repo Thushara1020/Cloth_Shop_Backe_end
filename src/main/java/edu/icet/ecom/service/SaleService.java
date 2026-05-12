@@ -34,10 +34,29 @@ public class SaleService {
         if (salesDto.getItems() == null || salesDto.getItems().isEmpty()) {
             throw new IllegalArgumentException("Cannot place an order with no items.");
         }
+        boolean hasWholesale = false;
+        boolean hasRetail = false;
+
+        for (SalesItemDto item : salesDto.getItems()) {
+            if (item.getQuantity() >= 6) {
+                hasWholesale = true;
+            } else {
+                hasRetail = true;
+            }
+        }
+
+        edu.icet.ecom.enums.SaleType determinedType;
+        if (hasWholesale && hasRetail) {
+            determinedType = edu.icet.ecom.enums.SaleType.MIXED;
+        } else if (hasWholesale) {
+            determinedType = edu.icet.ecom.enums.SaleType.WHOLESALE;
+        } else {
+            determinedType = edu.icet.ecom.enums.SaleType.RETAIL;
+        }
 
         SaleEntity saleEntity = new SaleEntity();
         saleEntity.setSaleId("SALE-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
-        saleEntity.setSaleType(salesDto.getSaleType());
+        saleEntity.setSaleType(determinedType);
 
         LocalDateTime now = LocalDateTime.now();
         String formattedTimestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
@@ -97,8 +116,7 @@ public class SaleService {
             log.setVariant(variant);
             log.setBarcodeId(variant.getBarcodeId());
             log.setQuantityChange(-qty);
-            log.setSaleType(salesDto.getSaleType()); // ← ADD THIS LINE
-            String adminName = (admin.getFullName() != null) ? admin.getFullName() : admin.getUsername();
+            log.setSaleType(qty >= 6 ? edu.icet.ecom.enums.SaleType.WHOLESALE : edu.icet.ecom.enums.SaleType.RETAIL);            String adminName = (admin.getFullName() != null) ? admin.getFullName() : admin.getUsername();
             log.setUpdateReason("SALE BY: " + adminName);
             log.setTimestamp(formattedTimestamp);
             log.setAdmin(admin);
