@@ -188,8 +188,8 @@ public class ProductService {
         // 1. Manually clear logs for every variant before deleting the product
         if (product.getVariants() != null) {
             for (ProductVariantEntity variant : product.getVariants()) {
-                // Assuming you add this method to your StockLogRepository
                 logRepository.deleteByVariant(variant);
+                variantRepository.delete(variant);
             }
         }
 
