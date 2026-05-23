@@ -4,6 +4,9 @@ import edu.icet.ecom.enums.SaleType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
@@ -23,7 +26,8 @@ public class SaleEntity {
     private Double netAmount;           // The final bill (totalAmount - discountAmount)
 
     private String paymentMethod;
-    private String timestamp;
+    @CreationTimestamp
+    private LocalDateTime timestamp;
 
     @ManyToOne
     @JoinColumn(name = "admin_id")

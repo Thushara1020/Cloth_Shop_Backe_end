@@ -4,6 +4,7 @@ import edu.icet.ecom.enums.SaleType;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Getter
@@ -18,6 +19,6 @@ public class SalesDto {
     private Double discountPercentage;
     private Double netAmount;
     private String paymentMethod;
-    private String timestamp;
+    private LocalDateTime timestamp;
     private List<SalesItemDto> items;
 }
