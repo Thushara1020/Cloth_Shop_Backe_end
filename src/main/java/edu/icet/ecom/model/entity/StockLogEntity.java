@@ -7,6 +7,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Getter
 @Setter
@@ -25,7 +27,7 @@ public class StockLogEntity {
     private Integer quantityChange;
 
     @JsonProperty("TIMESTAMP")
-    private String timestamp;
+    private LocalDateTime timestamp;
 
     @JsonProperty("UPDATE_REASON")
     private String updateReason;

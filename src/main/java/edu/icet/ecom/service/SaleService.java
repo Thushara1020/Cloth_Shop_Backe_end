@@ -13,6 +13,7 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -129,7 +130,7 @@ public class SaleService {
         String formattedTimestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String dateOnly = now.toLocalDate().toString();
 
-        saleEntity.setTimestamp(formattedTimestamp);
+        saleEntity.setTimestamp(now);
         saleEntity.setPaymentMethod(salesDto.getPaymentMethod());
 
         // 2. Admin Lookup (Crucial for Amashi's name to appear)
@@ -186,8 +187,7 @@ public class SaleService {
             log.setQuantityChange(-qty);
             log.setSaleType(qty >= 6 ? edu.icet.ecom.enums.SaleType.WHOLESALE : edu.icet.ecom.enums.SaleType.RETAIL);            String adminName = (admin.getFullName() != null) ? admin.getFullName() : admin.getUsername();
             log.setUpdateReason("SALE BY: " + adminName);
-            log.setTimestamp(formattedTimestamp);
-            log.setAdmin(admin);
+            log.setTimestamp(now);            log.setAdmin(admin);
             logRepository.saveAndFlush(log);
 
             stockService.refreshStatus(variant.getProduct().getProductId());
@@ -207,13 +207,17 @@ public class SaleService {
 
 
     public @Nullable StockReportDto generateReport(String type, String date) {
-        // 1. Fetch Sales and Stock Logs for the given date pattern
-        // (Ensure your repositories have findByTimestampStartingWith and findByTimestampPattern)
-        List<SaleEntity> sales = saleRepository.findByTimestampStartingWith(date);
-        List<StockLogEntity> logs = logRepository.findByTimestampPattern(date);
+        // 1. Convert the String date (e.g., "2026-05-24") to a range
+        LocalDate localDate = LocalDate.parse(date);
+        LocalDateTime start = localDate.atStartOfDay();
+        LocalDateTime end = localDate.plusDays(1).atStartOfDay();
+
+        // 2. Fetch Sales and Stock Logs using the new range query
+// ✅ NEW CODE
+        List<SaleEntity> sales = saleRepository.findByDateRange(start, end);        List<StockLogEntity> logs = logRepository.findByDateRange(start, end);
 
         if (sales.isEmpty() && logs.isEmpty()) {
-            return null; // Returning null if no data exists for that day
+            return null;
         }
 
         int itemsOut = 0;
@@ -260,7 +264,7 @@ public class SaleService {
         reportEntity.setTotalRevenue(rev);
         reportEntity.setTotalDiscountGiven(disc);
         reportEntity.setStockValue(val);
-        reportEntity.setGeneratedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        reportEntity.setGeneratedAt(LocalDateTime.now());
         stockReportRepository.save(reportEntity);
 
         StockReportDto dto = new StockReportDto();
@@ -293,7 +297,7 @@ public class SaleService {
         log.setBarcodeId(barcodeId);
         log.setQuantityChange(returnQty);
         log.setUpdateReason("RETURNED FROM SALE: " + saleId);
-        log.setTimestamp(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        log.setTimestamp(LocalDateTime.now());
         logRepository.save(log);
 
         // 4. (Optional) Remove or update the sales item record

@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Getter
 @Setter
@@ -27,5 +29,5 @@ public class StockReportEntity {
 
     private Double stockValue;
 
-    private String generatedAt;
+    private LocalDateTime generatedAt;
 }

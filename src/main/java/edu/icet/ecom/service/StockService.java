@@ -59,14 +59,20 @@ public class StockService {
         log.setBarcodeId(variant.getBarcodeId());
         log.setQuantityChange(dto.getQuantityAdded());
         log.setUpdateReason(dto.getUpdateReason());
-        log.setTimestamp(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        log.setTimestamp(LocalDateTime.now());
         logRepository.save(log);
     }
 
     @Transactional
     public StockReportDto generateReport(String type, String date) {
-        List<StockLogEntity> logs = logRepository.findByTimestampPattern(date);
-        List<SaleEntity> sales = saleRepository.findByTimestampStartingWith(date);
+        // 1. Convert the String date (e.g., "2026-05-24") into a LocalDateTime range
+        LocalDate localDate = LocalDate.parse(date);
+        LocalDateTime start = localDate.atStartOfDay(); // 00:00:00
+        LocalDateTime end = localDate.plusDays(1).atStartOfDay(); // 00:00:00 next day
+
+        // 2. Fetch using the new range-based methods
+        List<SaleEntity> sales = saleRepository.findByDateRange(start, end);
+        List<StockLogEntity> logs = logRepository.findByDateRange(start, end);
 
         int totalIn = 0; int totalOut = 0; double soldValue = 0.0; double discounts = 0.0; double revenue = 0.0;
 
@@ -83,7 +89,8 @@ public class StockService {
                 ProductVariantEntity v = log.getVariant();
                 if (v != null) {
                     double p = (v.getPriceOverride() != null) ? v.getPriceOverride() :
-                            (v.getProduct().getRetailPrice() != null ? v.getProduct().getRetailPrice() : v.getProduct().getWholesalePrice());                    soldValue += (Math.abs(qty) * p);
+                            (v.getProduct().getRetailPrice() != null ? v.getProduct().getRetailPrice() : v.getProduct().getWholesalePrice());
+                    soldValue += (Math.abs(qty) * p);
                 }
             }
         }
@@ -113,8 +120,7 @@ public class StockService {
         entity.setTotalDiscountGiven(dto.getTotalDiscountGiven());
         entity.setSoldItemsValue(soldItemsValue);
         entity.setStockValue(dto.getStockValue());
-        entity.setGeneratedAt(LocalDateTime.now().format(FORMATTER));
-
+        entity.setGeneratedAt(LocalDateTime.now());
         reportRepository.saveAndFlush(entity);
     }
 

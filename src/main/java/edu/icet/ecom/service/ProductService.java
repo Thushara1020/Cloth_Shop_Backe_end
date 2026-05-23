@@ -62,8 +62,8 @@ public class ProductService {
                 log.setBarcodeId(variant.getBarcodeId());
                 log.setQuantityChange(variant.getStockQuantity());
                 log.setUpdateReason("INITIAL_STOCK_ADD");
-                log.setTimestamp(entity.getCreatedAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-                logRepository.save(log);
+
+                log.setTimestamp(entity.getCreatedAt());                logRepository.save(log);
             });
         }
     }
@@ -115,7 +115,7 @@ public class ProductService {
             log.setBarcodeId(savedVar.getBarcodeId());
             log.setQuantityChange(savedVar.getStockQuantity());
             log.setUpdateReason("NEW_VARIANT_ADDED");
-            log.setTimestamp(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            log.setTimestamp(LocalDateTime.now());
             logRepository.save(log);
         }
     }
