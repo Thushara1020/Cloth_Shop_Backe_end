@@ -6,9 +6,11 @@ import edu.icet.ecom.model.dto.ProductDto;
 import edu.icet.ecom.model.dto.ProductVariantDto;
 import edu.icet.ecom.model.entity.ProductEntity;
 import edu.icet.ecom.model.entity.ProductVariantEntity;
+import edu.icet.ecom.model.entity.StockBatchEntity;
 import edu.icet.ecom.model.entity.StockLogEntity;
 import edu.icet.ecom.repository.ProductRepository;
 import edu.icet.ecom.repository.ProductVariantRepository;
+import edu.icet.ecom.repository.StockBatchRepository;
 import edu.icet.ecom.repository.StockLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
@@ -16,7 +18,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +31,7 @@ public class ProductService {
     private final ProductVariantRepository variantRepository;
     private final ProductRepository productRepository;
     private final StockLogRepository logRepository;
+    private final StockBatchRepository stockBatchRepository;
     private final ModelMapper modelMapper;
 
     @Transactional
@@ -62,8 +64,8 @@ public class ProductService {
                 log.setBarcodeId(variant.getBarcodeId());
                 log.setQuantityChange(variant.getStockQuantity());
                 log.setUpdateReason("INITIAL_STOCK_ADD");
-
-                log.setTimestamp(entity.getCreatedAt());                logRepository.save(log);
+                log.setTimestamp(entity.getCreatedAt());
+                logRepository.save(log);
             });
         }
     }
@@ -79,26 +81,25 @@ public class ProductService {
         if (productDto.getCategory() != null) existingEntity.setCategory(productDto.getCategory());
         if (productDto.getWholesalePrice() != null) existingEntity.setWholesalePrice(productDto.getWholesalePrice());
         if (productDto.getRetailPrice() != null) existingEntity.setRetailPrice(productDto.getRetailPrice());
+
         List<ProductVariantEntity> newlyAddedVariants = new ArrayList<>();
 
         if (productDto.getVariants() != null) {
             for (ProductVariantDto vDto : productDto.getVariants()) {
                 if (vDto.getVariantId() != null && !vDto.getVariantId().isEmpty()) {
-                    // Update Existing
+                    // Update existing variant
                     existingEntity.getVariants().stream()
                             .filter(v -> v.getVariantId().equals(vDto.getVariantId()))
                             .findFirst()
                             .ifPresent(existingVar -> modelMapper.map(vDto, existingVar));
                 } else {
-                    // Prepare New
+                    // Add new variant
                     ProductVariantEntity newVar = modelMapper.map(vDto, ProductVariantEntity.class);
                     newVar.setProduct(existingEntity);
                     newVar.setSku(generateSku(existingEntity, newVar));
                     if (newVar.getBarcodeId() == null || newVar.getBarcodeId().isEmpty()) {
                         newVar.setBarcodeId(generateUniqueBarcode());
                     }
-
-                    // Manually save the variant to ensure it has an ID immediately
                     ProductVariantEntity savedVar = variantRepository.save(newVar);
                     newlyAddedVariants.add(savedVar);
                 }
@@ -108,7 +109,7 @@ public class ProductService {
         refreshProductMetrics(existingEntity);
         productRepository.saveAndFlush(existingEntity);
 
-        // Logs for new variants
+        // Log newly added variants
         for (ProductVariantEntity savedVar : newlyAddedVariants) {
             StockLogEntity log = new StockLogEntity();
             log.setVariant(savedVar);
@@ -121,7 +122,9 @@ public class ProductService {
     }
 
     public List<ProductDto> getAllProducts() {
-        return productRepository.findAll().stream().map(this::convertToDto).collect(Collectors.toList());
+        return productRepository.findAll().stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
     }
 
     public ProductDto getProductById(Integer id) {
@@ -133,9 +136,12 @@ public class ProductService {
     private ProductDto convertToDto(ProductEntity entity) {
         ProductDto dto = modelMapper.map(entity, ProductDto.class);
         if (entity.getVariants() != null && !entity.getVariants().isEmpty()) {
-            dto.setAvailableSizes(entity.getVariants().stream().map(ProductVariantEntity::getSize).distinct().toList());
-            dto.setAvailableColors(entity.getVariants().stream().map(ProductVariantEntity::getColor).distinct().toList());
-            dto.setTotalQuantity(entity.getVariants().stream().mapToInt(v -> v.getStockQuantity() != null ? v.getStockQuantity() : 0).sum());
+            dto.setAvailableSizes(entity.getVariants().stream()
+                    .map(ProductVariantEntity::getSize).distinct().toList());
+            dto.setAvailableColors(entity.getVariants().stream()
+                    .map(ProductVariantEntity::getColor).distinct().toList());
+            dto.setTotalQuantity(entity.getVariants().stream()
+                    .mapToInt(v -> v.getStockQuantity() != null ? v.getStockQuantity() : 0).sum());
 
             if (entity.getRetailPrice() != null && entity.getDiscountPercentage() != null) {
                 dto.setDiscountedPrice(entity.getRetailPrice() * (1 - (entity.getDiscountPercentage() / 100)));
@@ -145,8 +151,10 @@ public class ProductService {
     }
 
     private void refreshProductMetrics(ProductEntity entity) {
-        int totalQty = (entity.getVariants() != null) ?
-                entity.getVariants().stream().mapToInt(v -> v.getStockQuantity() != null ? v.getStockQuantity() : 0).sum() : 0;
+        int totalQty = (entity.getVariants() != null)
+                ? entity.getVariants().stream()
+                .mapToInt(v -> v.getStockQuantity() != null ? v.getStockQuantity() : 0).sum()
+                : 0;
 
         if (totalQty <= 0) entity.setStockStatus(StockStatus.OUT_OF_STOCK);
         else if (totalQty < 10) entity.setStockStatus(StockStatus.LOW_STOCK);
@@ -154,16 +162,18 @@ public class ProductService {
     }
 
     private String generateSku(ProductEntity p, ProductVariantEntity v) {
-        String cat = (p.getCategory() != null) ? p.getCategory().substring(0, Math.min(p.getCategory().length(), 3)) : "GEN";
-        String name = (p.getProductName() != null) ? p.getProductName().substring(0, Math.min(p.getProductName().length(), 3)) : "PRD";
-        return (cat + "-" + name + "-" + (v.getSize() != null ? v.getSize() : "NA")).toUpperCase().replace(" ", "");
+        String cat = (p.getCategory() != null)
+                ? p.getCategory().substring(0, Math.min(p.getCategory().length(), 3)) : "GEN";
+        String name = (p.getProductName() != null)
+                ? p.getProductName().substring(0, Math.min(p.getProductName().length(), 3)) : "PRD";
+        return (cat + "-" + name + "-" + (v.getSize() != null ? v.getSize() : "NA"))
+                .toUpperCase().replace(" ", "");
     }
 
     private String generateUniqueBarcode() {
         String prefix = "479"; // Sri Lanka
         String company = "8000";
 
-        // Generate 5-digit product part
         int random = (int) (Math.random() * 100000);
         String productPart = String.format("%05d", random);
 
@@ -176,7 +186,6 @@ public class ProductService {
         }
 
         int checkDigit = (10 - (sum % 10)) % 10;
-
         return base + checkDigit;
     }
 
@@ -185,14 +194,12 @@ public class ProductService {
         ProductEntity product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
-        // delete stock logs first
         if (product.getVariants() != null) {
             for (ProductVariantEntity variant : product.getVariants()) {
                 logRepository.deleteByVariant(variant);
             }
         }
 
-        // cascade deletes variants automatically
         productRepository.delete(product);
     }
 
@@ -202,10 +209,22 @@ public class ProductService {
                     Map<String, Object> map = new HashMap<>();
                     map.put("barcodeId", variant.getBarcodeId() != null ? variant.getBarcodeId() : "N/A");
 
-                    // If there is no variant override, return the parent product's retail price
-                    Double price = (variant.getPriceOverride() != null)
-                            ? variant.getPriceOverride()
-                            : variant.getProduct().getRetailPrice();
+                    // Get oldest active batch price (FIFO — what will be sold next)
+                    List<StockBatchEntity> openBatches = stockBatchRepository
+                            .findByBarcodeIdOrderByRestockDateAsc(variant.getBarcodeId())
+                            .stream()
+                            .filter(b -> b.getQuantityRemaining() != null && b.getQuantityRemaining() > 0)
+                            .collect(Collectors.toList());
+
+                    Double price;
+                    if (!openBatches.isEmpty()) {
+                        price = openBatches.get(0).getBatchPrice();
+                    } else {
+                        // Fallback for pre-batch variants
+                        price = (variant.getPriceOverride() != null)
+                                ? variant.getPriceOverride()
+                                : variant.getProduct().getRetailPrice();
+                    }
 
                     map.put("price", price != null ? price : 0.0);
                     return map;
@@ -213,14 +232,25 @@ public class ProductService {
                 .toList();
     }
 
-
     @Transactional
     public void updatePriceByBarcode(String barcode, Double price) {
-        // Assuming you have a ProductVariantRepository injected
         ProductVariantEntity variant = variantRepository.findByBarcodeId(barcode)
                 .orElseThrow(() -> new RuntimeException("Barcode " + barcode + " not found"));
 
+        // Update the variant's fallback price
         variant.setPriceOverride(price);
         variantRepository.save(variant);
+
+        // Update ALL open batches to the new price immediately
+        List<StockBatchEntity> openBatches = stockBatchRepository
+                .findByBarcodeIdOrderByRestockDateAsc(barcode)
+                .stream()
+                .filter(b -> b.getQuantityRemaining() != null && b.getQuantityRemaining() > 0)
+                .collect(Collectors.toList());
+
+        for (StockBatchEntity batch : openBatches) {
+            batch.setBatchPrice(price);
+            stockBatchRepository.save(batch);
+        }
     }
 }
