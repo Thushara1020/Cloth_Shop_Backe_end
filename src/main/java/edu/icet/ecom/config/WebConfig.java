@@ -16,8 +16,7 @@ public class WebConfig {
         CorsConfiguration config = new CorsConfiguration();
 
         config.setAllowedOrigins(List.of(
-                "https://pesshop.biz.id",
-                "https://www.pesshop.biz.id",
+
                 "http://localhost:5173"
         ));
 
