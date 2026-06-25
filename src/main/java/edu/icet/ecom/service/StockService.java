@@ -7,15 +7,14 @@ import edu.icet.ecom.model.dto.StockUpdateDto;
 import edu.icet.ecom.model.entity.*;
 import edu.icet.ecom.repository.*;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -26,21 +25,18 @@ public class StockService {
     private final ProductRepository productRepository;
     private final StockReportRepository reportRepository;
     private final SaleRepository saleRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final StockBatchRepository stockBatchRepository;
 
-    private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
-    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern(DATE_FORMAT);
-
-    // --- Data Retrieval ---
-    // --- Data Retrieval ---
     public List<StockReportEntity> getAllSavedReports() {
         return reportRepository.findAll();
     }
 
-    // REPLACE YOUR OLD METHOD WITH THIS:
     public List<StockLogEntity> getAllStockLogs() {
-        // This calls the new repository method to get newest logs first
         return logRepository.findAllByOrderByLogIdDesc();
+    }
+
+    public List<StockBatchEntity> getBatchesByBarcode(String barcodeId) {
+        return stockBatchRepository.findByBarcodeIdOrderByRestockDateAsc(barcodeId);
     }
 
     @Transactional
@@ -51,9 +47,33 @@ public class StockService {
         // Increase the quantity
         int currentQty = variant.getStockQuantity() != null ? variant.getStockQuantity() : 0;
         variant.setStockQuantity(currentQty + dto.getQuantityAdded());
+
+        // Determine batch price: use provided newPrice, fall back to priceOverride, then product retailPrice
+        Double batchPrice = dto.getNewPrice();
+        if (batchPrice == null || batchPrice <= 0) {
+            batchPrice = (variant.getPriceOverride() != null && variant.getPriceOverride() > 0)
+                    ? variant.getPriceOverride()
+                    : (variant.getProduct().getRetailPrice() != null ? variant.getProduct().getRetailPrice() : 0.0);
+        }
+
+        // Determine batch price: use provided newPrice, fall back to priceOverride, then product retailPrice
+      
+
+// ← DELETED BLOCK WAS HERE. Now go straight to save:
         variantRepository.save(variant);
 
-        // Create a log entry
+        // Create a batch record for this restock
+        StockBatchEntity batch = new StockBatchEntity();
+        batch.setVariant(variant);
+        batch.setBarcodeId(variant.getBarcodeId());
+        batch.setBatchPrice(batchPrice);
+        batch.setQuantityAdded(dto.getQuantityAdded());
+        batch.setQuantityRemaining(dto.getQuantityAdded());
+        batch.setRestockDate(LocalDateTime.now());
+        batch.setNotes(dto.getUpdateReason());
+        stockBatchRepository.save(batch);
+
+        // Create a stock log entry
         StockLogEntity log = new StockLogEntity();
         log.setVariant(variant);
         log.setBarcodeId(variant.getBarcodeId());
@@ -63,14 +83,34 @@ public class StockService {
         logRepository.save(log);
     }
 
+    /**
+     * Deducts sold quantity from FIFO batches (oldest batch first).
+     * Called by SaleService when processing a sale.
+     */
+    @Transactional
+    public void deductFromBatches(String barcodeId, int quantityToDeduct) {
+        List<StockBatchEntity> batches = stockBatchRepository
+                .findByBarcodeIdOrderByRestockDateAsc(barcodeId);
+
+        int remaining = quantityToDeduct;
+        for (StockBatchEntity batch : batches) {
+            if (remaining <= 0) break;
+            int available = batch.getQuantityRemaining() != null ? batch.getQuantityRemaining() : 0;
+            if (available <= 0) continue;
+
+            int deduct = Math.min(available, remaining);
+            batch.setQuantityRemaining(available - deduct);
+            remaining -= deduct;
+            stockBatchRepository.save(batch);
+        }
+    }
+
     @Transactional
     public StockReportDto generateReport(String type, String date) {
-        // 1. Convert the String date (e.g., "2026-05-24") into a LocalDateTime range
         LocalDate localDate = LocalDate.parse(date);
-        LocalDateTime start = localDate.atStartOfDay(); // 00:00:00
-        LocalDateTime end = localDate.plusDays(1).atStartOfDay(); // 00:00:00 next day
+        LocalDateTime start = localDate.atStartOfDay();
+        LocalDateTime end = localDate.plusDays(1).atStartOfDay();
 
-        // 2. Fetch using the new range-based methods
         List<SaleEntity> sales = saleRepository.findByDateRange(start, end);
         List<StockLogEntity> logs = logRepository.findByDateRange(start, end);
 
@@ -125,20 +165,37 @@ public class StockService {
     }
 
     private double calculateStockValue() {
-        return productRepository.findAll().stream()
+        List<StockBatchEntity> activeBatches = stockBatchRepository.findAll().stream()
+                .filter(b -> b.getQuantityRemaining() != null && b.getQuantityRemaining() > 0)
+                .collect(Collectors.toList());
+
+        // Variants that have batch records
+        Set<String> variantsWithBatches = activeBatches.stream()
+                .map(b -> b.getVariant().getVariantId())
+                .collect(Collectors.toSet());
+
+        // Batch-accurate stock value
+        double batchValue = activeBatches.stream()
+                .mapToDouble(b -> b.getQuantityRemaining() * (b.getBatchPrice() != null ? b.getBatchPrice() : 0.0))
+                .sum();
+
+        // Fallback for variants that were added before the batch system was introduced
+        double fallbackValue = productRepository.findAll().stream()
                 .flatMap(p -> p.getVariants().stream())
+                .filter(v -> !variantsWithBatches.contains(v.getVariantId()))
                 .mapToDouble(v -> {
                     int qty = (v.getStockQuantity() != null ? v.getStockQuantity() : 0);
-                    // Use Price Override if exists, otherwise use Wholesale Price for inventory value
-                    double unitPrice = (v.getPriceOverride() != null) ? v.getPriceOverride() :
-                            (v.getProduct().getWholesalePrice() != null ? v.getProduct().getWholesalePrice() : 0.0);
-                    return qty * unitPrice;
+                    double price = (v.getPriceOverride() != null && v.getPriceOverride() > 0)
+                            ? v.getPriceOverride()
+                            : (v.getProduct().getWholesalePrice() != null ? v.getProduct().getWholesalePrice() : 0.0);
+                    return qty * price;
                 })
                 .sum();
+
+        return batchValue + fallbackValue;
     }
 
-    // Change 'private' to 'public'
-    public void refreshStatus(Integer productId) {
+    public void refreshStatus(int productId) {
         productRepository.findById(productId).ifPresent(p -> {
             int stock = p.getVariants().stream()
                     .mapToInt(v -> v.getStockQuantity() != null ? v.getStockQuantity() : 0)
