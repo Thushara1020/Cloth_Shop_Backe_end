@@ -7,9 +7,9 @@ import edu.icet.ecom.model.dto.StockReportDto;
 import edu.icet.ecom.model.dto.StockUpdateDto;
 import edu.icet.ecom.model.entity.*;
 import edu.icet.ecom.repository.*;
+import io.micrometer.common.lang.Nullable;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -156,6 +156,9 @@ public class SaleService {
             // Update Stock
             variant.setStockQuantity(variant.getStockQuantity() - itemDto.getQuantity());
             variantRepository.saveAndFlush(variant);
+
+            // Deduct from FIFO price batches (oldest batch first)
+            stockService.deductFromBatches(variant.getBarcodeId(), itemDto.getQuantity());
 
             // Calculate Pricing
             double unitPrice = itemDto.getUnitPrice();
