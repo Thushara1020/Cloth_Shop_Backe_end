@@ -11,4 +11,5 @@ public class StockUpdateDto {
     private Integer quantityAdded;
     private String updateReason; // e.g., "Restock", "Correction", "Return"
     private String date;
+    private Double newPrice; // optional: price for this restock batch
 }
