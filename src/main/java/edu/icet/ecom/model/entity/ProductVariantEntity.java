@@ -1,5 +1,6 @@
 package edu.icet.ecom.model.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -29,6 +30,11 @@ public class ProductVariantEntity {
     @ManyToOne
     @JoinColumn(name = "product_id",nullable = false)
     private ProductEntity product;
+
     @OneToMany(mappedBy = "variant", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StockLogEntity> stockLogs;
+
+    @OneToMany(mappedBy = "variant", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnoreProperties("variant")
+    private List<StockBatchEntity> stockBatches;
 }
