@@ -1,6 +1,7 @@
 package edu.icet.ecom.service;
 
 import edu.icet.ecom.enums.StockStatus;
+import edu.icet.ecom.enums.ProductUnit;
 import edu.icet.ecom.exceptions.ResourceNotFoundException;
 import edu.icet.ecom.model.dto.ProductDto;
 import edu.icet.ecom.model.dto.ProductVariantDto;
@@ -8,10 +9,12 @@ import edu.icet.ecom.model.entity.ProductEntity;
 import edu.icet.ecom.model.entity.ProductVariantEntity;
 import edu.icet.ecom.model.entity.StockBatchEntity;
 import edu.icet.ecom.model.entity.StockLogEntity;
+import edu.icet.ecom.model.entity.SupplierEntity;
 import edu.icet.ecom.repository.ProductRepository;
 import edu.icet.ecom.repository.ProductVariantRepository;
 import edu.icet.ecom.repository.StockBatchRepository;
 import edu.icet.ecom.repository.StockLogRepository;
+import edu.icet.ecom.repository.SupplierRepository;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
@@ -32,11 +35,22 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final StockLogRepository logRepository;
     private final StockBatchRepository stockBatchRepository;
+    private final SupplierRepository supplierRepository;
     private final ModelMapper modelMapper;
 
     @Transactional
     public void saveProduct(ProductDto productDto) {
         ProductEntity entity = modelMapper.map(productDto, ProductEntity.class);
+
+        if (productDto.getUnit() != null) {
+            entity.setUnit(ProductUnit.valueOf(productDto.getUnit().toUpperCase()));
+        }
+
+        if (productDto.getSupplierId() != null) {
+            SupplierEntity supplier = supplierRepository.findById(productDto.getSupplierId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + productDto.getSupplierId()));
+            entity.setSupplier(supplier);
+        }
 
         if (entity.getCreatedAt() == null) entity.setCreatedAt(LocalDateTime.now());
         if (entity.getUpdatedAt() == null) entity.setUpdatedAt(LocalDateTime.now());
@@ -82,18 +96,26 @@ public class ProductService {
         if (productDto.getWholesalePrice() != null) existingEntity.setWholesalePrice(productDto.getWholesalePrice());
         if (productDto.getRetailPrice() != null) existingEntity.setRetailPrice(productDto.getRetailPrice());
 
+        if (productDto.getUnit() != null) {
+            existingEntity.setUnit(ProductUnit.valueOf(productDto.getUnit().toUpperCase()));
+        }
+
+        if (productDto.getSupplierId() != null) {
+            SupplierEntity supplier = supplierRepository.findById(productDto.getSupplierId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + productDto.getSupplierId()));
+            existingEntity.setSupplier(supplier);
+        }
+
         List<ProductVariantEntity> newlyAddedVariants = new ArrayList<>();
 
         if (productDto.getVariants() != null) {
             for (ProductVariantDto vDto : productDto.getVariants()) {
                 if (vDto.getVariantId() != null && !vDto.getVariantId().isEmpty()) {
-                    // Update existing variant
                     existingEntity.getVariants().stream()
                             .filter(v -> v.getVariantId().equals(vDto.getVariantId()))
                             .findFirst()
                             .ifPresent(existingVar -> modelMapper.map(vDto, existingVar));
                 } else {
-                    // Add new variant
                     ProductVariantEntity newVar = modelMapper.map(vDto, ProductVariantEntity.class);
                     newVar.setProduct(existingEntity);
                     newVar.setSku(generateSku(existingEntity, newVar));
@@ -109,7 +131,6 @@ public class ProductService {
         refreshProductMetrics(existingEntity);
         productRepository.saveAndFlush(existingEntity);
 
-        // Log newly added variants
         for (ProductVariantEntity savedVar : newlyAddedVariants) {
             StockLogEntity log = new StockLogEntity();
             log.setVariant(savedVar);
@@ -135,6 +156,16 @@ public class ProductService {
 
     private ProductDto convertToDto(ProductEntity entity) {
         ProductDto dto = modelMapper.map(entity, ProductDto.class);
+
+        if (entity.getUnit() != null) {
+            dto.setUnit(entity.getUnit().name());
+        }
+
+        if (entity.getSupplier() != null) {
+            dto.setSupplierId(entity.getSupplier().getId());
+            dto.setSupplierName(entity.getSupplier().getName());
+        }
+
         if (entity.getVariants() != null && !entity.getVariants().isEmpty()) {
             dto.setAvailableSizes(entity.getVariants().stream()
                     .map(ProductVariantEntity::getSize).distinct().toList());
@@ -171,13 +202,13 @@ public class ProductService {
     }
 
     private String generateUniqueBarcode() {
-        String prefix = "479"; // Sri Lanka
+        String prefix = "479";
         String company = "8000";
 
         int random = (int) (Math.random() * 100000);
         String productPart = String.format("%05d", random);
 
-        String base = prefix + company + productPart; // 12 digits
+        String base = prefix + company + productPart;
 
         int sum = 0;
         for (int i = 0; i < base.length(); i++) {
@@ -209,7 +240,6 @@ public class ProductService {
                     Map<String, Object> map = new HashMap<>();
                     map.put("barcodeId", variant.getBarcodeId() != null ? variant.getBarcodeId() : "N/A");
 
-                    // Get oldest active batch price (FIFO — what will be sold next)
                     List<StockBatchEntity> openBatches = stockBatchRepository
                             .findByBarcodeIdOrderByRestockDateAsc(variant.getBarcodeId())
                             .stream()
@@ -220,7 +250,6 @@ public class ProductService {
                     if (!openBatches.isEmpty()) {
                         price = openBatches.get(0).getBatchPrice();
                     } else {
-                        // Fallback for pre-batch variants
                         price = (variant.getPriceOverride() != null)
                                 ? variant.getPriceOverride()
                                 : variant.getProduct().getRetailPrice();
@@ -237,11 +266,9 @@ public class ProductService {
         ProductVariantEntity variant = variantRepository.findByBarcodeId(barcode)
                 .orElseThrow(() -> new RuntimeException("Barcode " + barcode + " not found"));
 
-        // Update the variant's fallback price
         variant.setPriceOverride(price);
         variantRepository.save(variant);
 
-        // Update ALL open batches to the new price immediately
         List<StockBatchEntity> openBatches = stockBatchRepository
                 .findByBarcodeIdOrderByRestockDateAsc(barcode)
                 .stream()
