@@ -76,7 +76,7 @@ public class ProductService {
                 StockLogEntity log = new StockLogEntity();
                 log.setVariant(variant);
                 log.setBarcodeId(variant.getBarcodeId());
-                log.setQuantityChange(variant.getStockQuantity());
+                log.setQuantityChanged(variant.getStockQuantity());
                 log.setUpdateReason("INITIAL_STOCK_ADD");
                 log.setTimestamp(entity.getCreatedAt());
                 logRepository.save(log);
@@ -135,7 +135,7 @@ public class ProductService {
             StockLogEntity log = new StockLogEntity();
             log.setVariant(savedVar);
             log.setBarcodeId(savedVar.getBarcodeId());
-            log.setQuantityChange(savedVar.getStockQuantity());
+            log.setQuantityChanged(savedVar.getStockQuantity());
             log.setUpdateReason("NEW_VARIANT_ADDED");
             log.setTimestamp(LocalDateTime.now());
             logRepository.save(log);
@@ -168,9 +168,9 @@ public class ProductService {
 
         if (entity.getVariants() != null && !entity.getVariants().isEmpty()) {
             dto.setAvailableSizes(entity.getVariants().stream()
-                    .map(ProductVariantEntity::getSize).distinct().toList());
+                    .map(ProductVariantEntity::getDimensions).distinct().toList());
             dto.setAvailableColors(entity.getVariants().stream()
-                    .map(ProductVariantEntity::getColor).distinct().toList());
+                    .map(ProductVariantEntity::getMaterialOrType).distinct().toList());
             dto.setTotalQuantity(entity.getVariants().stream()
                     .mapToInt(v -> v.getStockQuantity() != null ? v.getStockQuantity() : 0).sum());
 
@@ -197,7 +197,7 @@ public class ProductService {
                 ? p.getCategory().substring(0, Math.min(p.getCategory().length(), 3)) : "GEN";
         String name = (p.getProductName() != null)
                 ? p.getProductName().substring(0, Math.min(p.getProductName().length(), 3)) : "PRD";
-        return (cat + "-" + name + "-" + (v.getSize() != null ? v.getSize() : "NA"))
+        return (cat + "-" + name + "-" + (v.getDimensions() != null ? v.getMaterialOrType() : "NA"))
                 .toUpperCase().replace(" ", "");
     }
 
