@@ -10,7 +10,15 @@ import java.util.List;
 
 public interface SaleRepository extends JpaRepository<SaleEntity, String> {
 
-    // IMPORTANT: Remove findByTimestampStartingWith. Use this instead:
     @Query("SELECT s FROM SaleEntity s WHERE s.timestamp >= :start AND s.timestamp < :end")
     List<SaleEntity> findByDateRange(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("SELECT COALESCE(SUM(s.totalAmount), 0.0) FROM SaleEntity s WHERE s.timestamp >= :start AND s.timestamp < :end")
+    Double getTotalRevenue(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("SELECT COALESCE(SUM(s.discountAmount), 0.0) FROM SaleEntity s WHERE s.timestamp >= :start AND s.timestamp < :end")
+    Double getTotalDiscount(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("SELECT COUNT(s) FROM SaleEntity s WHERE s.timestamp >= :start AND s.timestamp < :end")
+    Long getSalesCount(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 }
