@@ -29,7 +29,12 @@ public class CustomerEntity {
     @Column(name = "credit_limit", nullable = false)
     private Double creditLimit;
 
-    // One Customer can have many Credit Sales
+    @Column(name = "current_balance", nullable = false)
+    private Double currentBalance = 0.0;
+
     @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL)
     private List<SaleEntity> sales;
+    
+    @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL)
+    private List<CreditSettlementEntity> settlements;
 }
