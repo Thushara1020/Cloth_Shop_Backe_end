@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.List;
 
 @Service
@@ -22,23 +21,34 @@ public class DashboardService {
     private final ProductVariantRepository variantRepository;
     private final SaleRepository saleRepository;
 
-    public DashboardAnalyticsDto getDashboardAnalytics() {
+    public DashboardAnalyticsDto getDashboardAnalytics(String period) {
         DashboardAnalyticsDto dto = new DashboardAnalyticsDto();
 
-        LocalDateTime startOfDay = LocalDateTime.of(LocalDate.now(), LocalTime.MIN);
-        LocalDateTime endOfDay = LocalDateTime.of(LocalDate.now(), LocalTime.MAX);
+        LocalDateTime start;
+        LocalDateTime end = LocalDateTime.now();
 
-        List<SaleEntity> todaysSales = saleRepository.findByDateRange(startOfDay, endOfDay);
+        if ("week".equalsIgnoreCase(period)) {
+            start = LocalDate.now().minusWeeks(1).atStartOfDay();
+        } else if ("month".equalsIgnoreCase(period)) {
+            start = LocalDate.now().withDayOfMonth(1).atStartOfDay();
+        } else if ("all".equalsIgnoreCase(period)) {
+            start = LocalDateTime.of(2000, 1, 1, 0, 0);
+        } else {
+            start = LocalDate.now().atStartOfDay();
+        }
 
-        double todayRevenue = todaysSales.stream()
+
+        List<SaleEntity> sales = saleRepository.findByDateRange(start, end);
+
+        double revenue = sales.stream()
                 .mapToDouble(sale -> sale.getNetAmount() != null ? sale.getNetAmount() : 0.0)
                 .sum();
-        dto.setTodayRevenue(todayRevenue);
+        dto.setTodayRevenue(revenue);
 
-        double todayDiscount = todaysSales.stream()
+        double discount = sales.stream()
                 .mapToDouble(sale -> sale.getDiscountAmount() != null ? sale.getDiscountAmount() : 0.0)
                 .sum();
-        dto.setTodayDiscountGiven(todayDiscount);
+        dto.setTodayDiscountGiven(discount);
 
         dto.setTotalProductsCount((int) productRepository.count());
 
