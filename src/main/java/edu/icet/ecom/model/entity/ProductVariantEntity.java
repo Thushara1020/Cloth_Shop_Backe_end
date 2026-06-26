@@ -14,10 +14,11 @@ import java.util.List;
 public class ProductVariantEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    private String variantId; // e.g., V-5001
+    private String variantId;
 
-    private String size;
-    private String color;
+    private String dimensions;     // "1/2 inch", "3 inches", "50mm"
+    private String materialOrType;  // "PVC", "Steel", "Brass", "GI"
+
     private Integer stockQuantity;
     private String sku;
 
@@ -28,7 +29,7 @@ public class ProductVariantEntity {
 
     // Many Variants -> One Product
     @ManyToOne
-    @JoinColumn(name = "product_id",nullable = false)
+    @JoinColumn(name = "product_id", nullable = false)
     private ProductEntity product;
 
     @OneToMany(mappedBy = "variant", cascade = CascadeType.ALL, orphanRemoval = true)
