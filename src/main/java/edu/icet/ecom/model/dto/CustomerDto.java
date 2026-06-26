@@ -11,5 +11,6 @@ public class CustomerDto {
     private String phone;
     private String nic;
     private String address;
+    private Double currentBalance;
     private Double creditLimit;
 }
