@@ -39,13 +39,14 @@ public class SaleService {
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
+
     public List<SalesDto> findSalesByBarcode(String barcodeId) {
         List<SalesItemEntity> items = salesItemRepository.findByBarcodeId(barcodeId);
 
         return items.stream()
-                .map(item -> item.getSale()) // Get the parent SaleEntity
-                .distinct()                  // Remove duplicates if same item added twice in one sale
-                .map(this::convertToDto)     // Convert to the DTO you already have
+                .map(item -> item.getSale())
+                .distinct()
+                .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
@@ -61,11 +62,8 @@ public class SaleService {
         dto.setPaymentMethod(entity.getPaymentMethod());
         dto.setTimestamp(entity.getTimestamp());
 
-        // ✅ ADMIN ID
         if (entity.getAdmin() != null) {
             dto.setAdminId(entity.getAdmin().getAdminId());
-
-            // ⭐ THIS IS YOUR SALES PERSON NAME
             dto.setSalesPersonName(
                     entity.getAdmin().getFullName() != null
                             ? entity.getAdmin().getFullName()
@@ -73,7 +71,6 @@ public class SaleService {
             );
         }
 
-        // ITEMS (unchanged)
         if (entity.getItems() != null) {
             List<SalesItemDto> itemDtos = entity.getItems().stream().map(itemEntity -> {
                 SalesItemDto itemDto = new SalesItemDto();
@@ -98,7 +95,6 @@ public class SaleService {
 
     @Transactional
     public void placeOrder(SalesDto salesDto) {
-        // 1. Validation: Prevent NullPointerException on getItems()
         if (salesDto.getItems() == null || salesDto.getItems().isEmpty()) {
             throw new IllegalArgumentException("Cannot place an order with no items.");
         }
@@ -127,13 +123,9 @@ public class SaleService {
         saleEntity.setSaleType(determinedType);
 
         LocalDateTime now = LocalDateTime.now();
-        String formattedTimestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        String dateOnly = now.toLocalDate().toString();
-
         saleEntity.setTimestamp(now);
         saleEntity.setPaymentMethod(salesDto.getPaymentMethod());
 
-        // 2. Admin Lookup (Crucial for Amashi's name to appear)
         AdminEntity admin = adminRepository.findById(salesDto.getAdminId())
                 .orElseThrow(() -> new EntityNotFoundException("Admin ID " + salesDto.getAdminId() + " not found."));
 
@@ -143,7 +135,6 @@ public class SaleService {
         double totalDiscountAmount = 0.0;
         List<SalesItemEntity> itemEntities = new ArrayList<>();
 
-        // 3. Process Items
         for (SalesItemDto itemDto : salesDto.getItems()) {
             ProductVariantEntity variant = variantRepository
                     .findByBarcodeId(itemDto.getBarcodeId())
@@ -153,14 +144,11 @@ public class SaleService {
                 throw new RuntimeException("Insufficient stock for: " + variant.getSku());
             }
 
-            // Update Stock
             variant.setStockQuantity(variant.getStockQuantity() - itemDto.getQuantity());
             variantRepository.saveAndFlush(variant);
 
-            // Deduct from FIFO price batches (oldest batch first)
             stockService.deductFromBatches(variant.getBarcodeId(), itemDto.getQuantity());
 
-            // Calculate Pricing
             double unitPrice = itemDto.getUnitPrice();
             int qty = itemDto.getQuantity();
             double itemTotal = unitPrice * qty;
@@ -182,15 +170,15 @@ public class SaleService {
             totalAmount += itemTotal;
             totalDiscountAmount += itemDiscount;
 
-            // 4. Log Stock Change with Admin Name (Amashi Pathiraja)
-            // 4. Log Stock Change with Admin Name
             StockLogEntity log = new StockLogEntity();
             log.setVariant(variant);
             log.setBarcodeId(variant.getBarcodeId());
-            log.setQuantityChange(-qty);
-            log.setSaleType(qty >= 6 ? edu.icet.ecom.enums.SaleType.WHOLESALE : edu.icet.ecom.enums.SaleType.RETAIL);            String adminName = (admin.getFullName() != null) ? admin.getFullName() : admin.getUsername();
+            log.setQuantityChanged(-qty);
+            log.setSaleType(qty >= 6 ? edu.icet.ecom.enums.SaleType.WHOLESALE : edu.icet.ecom.enums.SaleType.RETAIL);
+            String adminName = (admin.getFullName() != null) ? admin.getFullName() : admin.getUsername();
             log.setUpdateReason("SALE BY: " + adminName);
-            log.setTimestamp(now);            log.setAdmin(admin);
+            log.setTimestamp(now);
+            log.setAdmin(admin);
             logRepository.saveAndFlush(log);
 
             stockService.refreshStatus(variant.getProduct().getProductId());
@@ -203,21 +191,16 @@ public class SaleService {
         saleEntity.setItems(itemEntities);
 
         saleRepository.saveAndFlush(saleEntity);
-        stockService.generateReport("DAILY", dateOnly);
+        stockService.generateReport("DAILY", now.toLocalDate().toString());
     }
 
-
-
-
     public @Nullable StockReportDto generateReport(String type, String date) {
-        // 1. Convert the String date (e.g., "2026-05-24") to a range
         LocalDate localDate = LocalDate.parse(date);
         LocalDateTime start = localDate.atStartOfDay();
         LocalDateTime end = localDate.plusDays(1).atStartOfDay();
 
-        // 2. Fetch Sales and Stock Logs using the new range query
-// ✅ NEW CODE
-        List<SaleEntity> sales = saleRepository.findByDateRange(start, end);        List<StockLogEntity> logs = logRepository.findByDateRange(start, end);
+        List<SaleEntity> sales = saleRepository.findByDateRange(start, end);
+        List<StockLogEntity> logs = logRepository.findByDateRange(start, end);
 
         if (sales.isEmpty() && logs.isEmpty()) {
             return null;
@@ -240,15 +223,14 @@ public class SaleService {
         }
 
         for (StockLogEntity log : logs) {
-            if (log.getQuantityChange() > 0) {
-                itemsIn += log.getQuantityChange();
+            if (log.getQuantityChanged() != null && log.getQuantityChanged() > 0) {
+                itemsIn += log.getQuantityChanged();
             }
         }
 
         double currentStockValue = variantRepository.findAll().stream()
                 .mapToDouble(v -> {
                     int qty = (v.getStockQuantity() != null ? v.getStockQuantity() : 0);
-                    // Fallback: If priceOverride exists, use it, else use wholesalePrice
                     double price = (v.getPriceOverride() != null && v.getPriceOverride() > 0)
                             ? v.getPriceOverride()
                             : (v.getProduct().getWholesalePrice() != null ? v.getProduct().getWholesalePrice() : 0.0);
@@ -280,44 +262,36 @@ public class SaleService {
         dto.setStockValue(val);
         return dto;
     }
+
     @Transactional
     public void processReturn(String saleId, String barcodeId, Integer returnQty) {
-        // 1. Find the specific item in the specific sale
         List<SalesItemEntity> items = salesItemRepository.findBySale_SaleIdAndBarcodeId(saleId, barcodeId);
 
         if (items.isEmpty()) throw new RuntimeException("Item not found in this sale.");
 
         SalesItemEntity item = items.get(0);
 
-        // 2. Put the stock back into the variant
         ProductVariantEntity variant = item.getVariant();
         variant.setStockQuantity(variant.getStockQuantity() + returnQty);
         variantRepository.save(variant);
 
-        // 3. Log the return
         StockLogEntity log = new StockLogEntity();
         log.setVariant(variant);
         log.setBarcodeId(barcodeId);
-        log.setQuantityChange(returnQty);
+        log.setQuantityChanged(returnQty);
         log.setUpdateReason("RETURNED FROM SALE: " + saleId);
         log.setTimestamp(LocalDateTime.now());
         logRepository.save(log);
-
-        // 4. (Optional) Remove or update the sales item record
-        // Depending on your policy, you might delete the item or just flag it
-        // salesItemRepository.delete(item);
     }
+
     @Transactional
     public void processReturn(Map<String, Object> returnRequest) {
-        // 1. Safe Extraction
         String saleId = (String) returnRequest.get("saleId");
         String barcodeId = (String) returnRequest.get("barcodeId");
 
-        // JSON numbers can arrive as Integer or Double; use Number for safety
         Object qtyObj = returnRequest.get("quantity");
         Integer quantityToReturn = (qtyObj instanceof Number) ? ((Number) qtyObj).intValue() : 0;
 
-        // 2. Fetch Sale and Item
         SaleEntity sale = saleRepository.findById(saleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Sale not found: " + saleId));
 
@@ -326,12 +300,10 @@ public class SaleService {
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Item not found in this sale"));
 
-        // 3. Validation: Prevent over-returning
         if (quantityToReturn > item.getQuantity()) {
             throw new RuntimeException("Return quantity exceeds original purchased quantity");
         }
 
-        // 4. Update Inventory using StockUpdateDto
         StockUpdateDto stockUpdate = new StockUpdateDto();
         stockUpdate.setBarcodeId(barcodeId);
         stockUpdate.setVarientId(item.getVariant().getVariantId());
@@ -339,22 +311,17 @@ public class SaleService {
         stockUpdate.setUpdateReason("RETURNED FROM SALE: " + saleId);
         stockUpdate.setDate(LocalDateTime.now().toString());
 
-        // Call existing stock logic to update variant and log movement
         stockService.updateStock(stockUpdate);
 
-        // 5. Adjust Sale Totals
-        // Reduce the item quantity in the sale record
         item.setQuantity(item.getQuantity() - quantityToReturn);
         item.setTotalPrice(item.getUnitPrice() * item.getQuantity());
 
-        // Recalculate Sale Summary
         double newTotal = sale.getItems().stream()
                 .mapToDouble(SalesItemEntity::getTotalPrice)
                 .sum();
 
         sale.setTotalAmount(newTotal);
 
-        // Apply discount logic if percentage exists
         double discPct = (sale.getDiscountPercentage() != null) ? sale.getDiscountPercentage() : 0.0;
         double newDiscAmount = newTotal * (discPct / 100);
 
@@ -363,6 +330,4 @@ public class SaleService {
 
         saleRepository.save(sale);
     }
-
 }
-
