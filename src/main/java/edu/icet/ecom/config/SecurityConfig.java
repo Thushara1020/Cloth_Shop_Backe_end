@@ -46,12 +46,20 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
                         .requestMatchers("/auth/**", "/error", "/h2-console/**").permitAll()
                         .requestMatchers("/ws-stock/**").permitAll()
+
                         .requestMatchers("/api/products/**").permitAll()
                         .requestMatchers("/api/admin/**").permitAll()
                         .requestMatchers("/api/sales/**").permitAll()
                         .requestMatchers("/api/stock/**").permitAll()
+
+                        .requestMatchers("/api/customers/**").permitAll()
+                        .requestMatchers("/api/suppliers/**").permitAll()
+                        .requestMatchers("/api/dashboard/**").permitAll()
+                        .requestMatchers("/api/grn/**").permitAll()
+
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session ->
