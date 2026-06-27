@@ -24,6 +24,7 @@ public class SupplierEntity {
     @Column(nullable = false, unique = true)
     private String nic;
 
+    @Column(nullable = false, unique = true)
     private String address;
 
     // One Supplier can supply many Products
