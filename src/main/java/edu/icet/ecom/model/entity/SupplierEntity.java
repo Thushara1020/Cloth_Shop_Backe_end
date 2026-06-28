@@ -27,7 +27,6 @@ public class SupplierEntity {
     @Column(nullable = false, unique = true)
     private String address;
 
-    // One Supplier can supply many Products
     @OneToMany(mappedBy = "supplier", cascade = CascadeType.ALL)
     private List<ProductEntity> products;
 }
