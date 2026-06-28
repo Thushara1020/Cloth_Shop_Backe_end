@@ -33,6 +33,10 @@ public class SaleEntity {
     @JoinColumn(name = "admin_id")
     private AdminEntity admin;
 
+    @ManyToOne
+    @JoinColumn(name = "customer_id", nullable = true)
+    private CustomerEntity customer;
+
     @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL)
     private List<SalesItemEntity> items;
 }

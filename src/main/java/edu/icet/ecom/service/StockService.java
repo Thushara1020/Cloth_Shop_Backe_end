@@ -44,11 +44,10 @@ public class StockService {
         ProductVariantEntity variant = variantRepository.findByBarcodeId(dto.getBarcodeId())
                 .orElseThrow(() -> new ResourceNotFoundException("Variant not found"));
 
-        // Increase the quantity
         int currentQty = variant.getStockQuantity() != null ? variant.getStockQuantity() : 0;
         variant.setStockQuantity(currentQty + dto.getQuantityAdded());
 
-        // Determine batch price: use provided newPrice, fall back to priceOverride, then product retailPrice
+        // Determine batch price
         Double batchPrice = dto.getNewPrice();
         if (batchPrice == null || batchPrice <= 0) {
             batchPrice = (variant.getPriceOverride() != null && variant.getPriceOverride() > 0)
@@ -56,10 +55,6 @@ public class StockService {
                     : (variant.getProduct().getRetailPrice() != null ? variant.getProduct().getRetailPrice() : 0.0);
         }
 
-        // Determine batch price: use provided newPrice, fall back to priceOverride, then product retailPrice
-      
-
-// ← DELETED BLOCK WAS HERE. Now go straight to save:
         variantRepository.save(variant);
 
         // Create a batch record for this restock
@@ -77,7 +72,9 @@ public class StockService {
         StockLogEntity log = new StockLogEntity();
         log.setVariant(variant);
         log.setBarcodeId(variant.getBarcodeId());
-        log.setQuantityChange(dto.getQuantityAdded());
+
+        log.setQuantityChanged(dto.getQuantityAdded());
+
         log.setUpdateReason(dto.getUpdateReason());
         log.setTimestamp(LocalDateTime.now());
         logRepository.save(log);
@@ -112,7 +109,10 @@ public class StockService {
         LocalDateTime end = localDate.plusDays(1).atStartOfDay();
 
         List<SaleEntity> sales = saleRepository.findByDateRange(start, end);
-        List<StockLogEntity> logs = logRepository.findByDateRange(start, end);
+
+        List<StockLogEntity> logs = logRepository.findAll().stream()
+                .filter(l -> l.getTimestamp() != null && !l.getTimestamp().isBefore(start) && l.getTimestamp().isBefore(end))
+                .collect(Collectors.toList());
 
         int totalIn = 0; int totalOut = 0; double soldValue = 0.0; double discounts = 0.0; double revenue = 0.0;
 
@@ -122,7 +122,7 @@ public class StockService {
         }
 
         for (StockLogEntity log : logs) {
-            int qty = (log.getQuantityChange() != null) ? log.getQuantityChange() : 0;
+            int qty = (log.getQuantityChanged() != null) ? log.getQuantityChanged() : 0;
             if (qty > 0) totalIn += qty;
             else if (qty < 0) {
                 totalOut += Math.abs(qty);
@@ -169,17 +169,14 @@ public class StockService {
                 .filter(b -> b.getQuantityRemaining() != null && b.getQuantityRemaining() > 0)
                 .collect(Collectors.toList());
 
-        // Variants that have batch records
         Set<String> variantsWithBatches = activeBatches.stream()
                 .map(b -> b.getVariant().getVariantId())
                 .collect(Collectors.toSet());
 
-        // Batch-accurate stock value
         double batchValue = activeBatches.stream()
                 .mapToDouble(b -> b.getQuantityRemaining() * (b.getBatchPrice() != null ? b.getBatchPrice() : 0.0))
                 .sum();
 
-        // Fallback for variants that were added before the batch system was introduced
         double fallbackValue = productRepository.findAll().stream()
                 .flatMap(p -> p.getVariants().stream())
                 .filter(v -> !variantsWithBatches.contains(v.getVariantId()))

@@ -24,7 +24,7 @@ public class StockLogEntity {
     private String barcodeId;
 
     @JsonProperty("QUANTITY_CHANGE")
-    private Integer quantityChange;
+    private Integer quantityChanged;
 
     @JsonProperty("TIMESTAMP")
     private LocalDateTime timestamp;

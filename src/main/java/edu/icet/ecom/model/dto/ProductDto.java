@@ -21,8 +21,12 @@ public class ProductDto {
     private Double discountedPrice;
     private StockStatus stockStatus;
 
-    private List<String>availableSizes;
-    private List<String>availableColors;
+    private Long supplierId;
+    private String supplierName;
+    private String unit;
+
+    private List<String> availableSizes;
+    private List<String> availableColors;
     private String material;
     private String season;
 
@@ -31,5 +35,4 @@ public class ProductDto {
 
     private Integer totalQuantity;
     private List<ProductVariantDto> variants;
-
 }

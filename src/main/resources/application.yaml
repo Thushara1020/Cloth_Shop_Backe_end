@@ -3,7 +3,7 @@ spring:
     name: ClothStore
 
   datasource:
-    url: jdbc:h2:mem:cloth_db
+    url: jdbc:h2:mem:hardware_db
     driver-class-name: org.h2.Driver
     username: ra
     password: 1234
@@ -18,5 +18,3 @@ spring:
     hibernate:
       ddl-auto: update
       show-sql: true
-
-
